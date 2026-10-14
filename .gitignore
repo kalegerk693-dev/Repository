@@ -1,0 +1,4 @@
+# Trained models are big binary files; they are rebuilt with `python story.py train`.
+checkpoints/
+__pycache__/
+*.pyc

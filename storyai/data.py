@@ -11,20 +11,58 @@ import numpy as np
 from .tokenizer import END_OF_STORY
 
 
-def read_stories(folder):
-    """Every .txt file in `folder` (including subfolders) is a story.
+# Story separators: ours, plus the one GPT-2 style datasets (like TinyStories) use.
+SEPARATORS = (END_OF_STORY, "<|endoftext|>")
 
-    One file can also hold many stories if they are separated by a line
-    containing just <|endofstory|>.
-    """
-    stories = []
-    for path in sorted(Path(folder).rglob("*.txt")):
-        text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
-        for part in text.split(END_OF_STORY):
-            part = part.strip()
-            if part:
-                stories.append(part)
-    return stories
+
+def read_text_file(path):
+    """Read a text file whatever it was saved as: UTF-8 (with or without a BOM),
+    UTF-16 ("Unicode" in Windows Notepad), or Windows "ANSI". Line endings become \\n."""
+    raw = Path(path).read_bytes()
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = raw.decode("utf-16", errors="replace")
+    else:
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("cp1252", errors="replace")
+    return text.replace("\ufeff", "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def story_files(folder):
+    """Every .txt file in `folder` and its subfolders (or `folder` itself if it's a file).
+    Hidden files and the junk macOS leaves behind (__MACOSX, ._name.txt) are skipped."""
+    root = Path(folder)
+    if root.is_file():
+        return [root]
+    if not root.is_dir():
+        return []
+    return [path for path in sorted(root.rglob("*"))
+            if path.suffix.lower() == ".txt" and path.is_file()
+            and not any(part.startswith(".") or part == "__MACOSX"
+                        for part in path.relative_to(root).parts)]
+
+
+def split_stories(text):
+    """One file can hold many stories, separated by a line containing just <|endofstory|>."""
+    for sep in SEPARATORS[1:]:
+        text = text.replace(sep, END_OF_STORY)
+    return [part.strip() for part in text.split(END_OF_STORY) if part.strip()]
+
+
+def read_stories(folder):
+    """All the stories in `folder`, in a stable order."""
+    return [story for path in story_files(folder) for story in split_stories(read_text_file(path))]
+
+
+def count_new_stories(folder, text):
+    """How many of the stories in `text` aren't in `folder` yet."""
+    existing = set(read_stories(folder))
+    return sum(story not in existing for story in split_stories(text))
+
+
+def story_id(story):
+    return hashlib.md5(story.encode("utf-8")).hexdigest()[:12]
 
 
 def save_story(folder, text, name=None):
@@ -38,16 +76,16 @@ def save_story(folder, text, name=None):
     while path.exists():
         n += 1
         path = folder / f"{stem}_{n}.txt"
-    path.write_text(text.strip() + "\n", encoding="utf-8")
+    path.write_text(text.replace("\ufeff", "").replace("\r\n", "\n").strip() + "\n",
+                    encoding="utf-8")
     return path
 
 
 def list_story_files(folder):
     """[(path, number of words, first words)] for every story file."""
     files = []
-    for path in sorted(Path(folder).rglob("*.txt")):
-        text = path.read_text(encoding="utf-8-sig", errors="replace")
-        words = text.split()
+    for path in story_files(folder):
+        words = read_text_file(path).split()
         files.append((path, len(words), " ".join(words[:12])))
     return files
 

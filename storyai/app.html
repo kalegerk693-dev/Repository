@@ -228,12 +228,21 @@ $("addBtn").onclick = async () => {
   } catch (e) { toast(e.message); }
 };
 
+// Read a text file whatever it was saved as: UTF-8, UTF-16 ("Unicode" in Notepad) or Windows "ANSI".
+async function readTextFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes);
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch (e) { return new TextDecoder("windows-1252").decode(bytes); }
+}
+
 $("fileInput").onchange = async e => {
   const files = [...e.target.files];
   let added = 0;
   for (const f of files) {
     try {
-      await api("/api/stories", { text: await f.text(), name: f.name.replace(/\.[^.]+$/, "") });
+      await api("/api/stories", { text: await readTextFile(f), name: f.name.replace(/\.[^.]+$/, "") });
       added++;
     } catch (err) { toast(`${f.name}: ${err.message}`); }
   }

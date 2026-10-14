@@ -33,6 +33,17 @@ SPLIT_PATTERN = re.compile(
 )
 
 
+# Very long runs with no spaces (a pasted web link, text without spaces) are cut into
+# pieces of this many characters, so training and encoding never slow to a crawl.
+MAX_CHUNK = 64
+
+
+def split_chunks(text):
+    for chunk in SPLIT_PATTERN.findall(text):
+        for i in range(0, len(chunk), MAX_CHUNK):
+            yield chunk[i:i + MAX_CHUNK]
+
+
 def _merge(ids, pair, new_id):
     """Replace every occurrence of `pair` in `ids` with `new_id`."""
     a, b = pair
@@ -49,10 +60,11 @@ def _merge(ids, pair, new_id):
 
 
 class Tokenizer:
-    def __init__(self, merges=(), special_tokens=(END_OF_STORY,)):
+    def __init__(self, merges=(), special_tokens=(END_OF_STORY,), trained_chars=None):
         # merges[i] is the pair of token ids that became token 256 + i.
         self.merges = [tuple(p) for p in merges]
         self.special_tokens = list(special_tokens)
+        self.trained_chars = trained_chars  # how much text it learned from
 
         self.ranks = {pair: i for i, pair in enumerate(self.merges)}
         self.vocab = {i: bytes([i]) for i in range(256)}
@@ -84,8 +96,10 @@ class Tokenizer:
             raise ValueError(f"vocab_size must be at least {256 + len(special_tokens)}")
 
         chunk_counts = Counter()
+        trained_chars = 0
         for text in texts:
-            chunk_counts.update(SPLIT_PATTERN.findall(text))
+            chunk_counts.update(split_chunks(text))
+            trained_chars += len(text)
         words = [list(chunk.encode("utf-8")) for chunk in chunk_counts]
         freqs = list(chunk_counts.values())
 
@@ -137,7 +151,7 @@ class Tokenizer:
 
         if verbose and len(merges) < num_merges:
             log(f"  stopped at {len(merges)} merges: no pair of tokens repeats any more")
-        return cls(merges, special_tokens)
+        return cls(merges, special_tokens, trained_chars)
 
     # ------------------------------------------------------------ encode/decode
 
@@ -155,7 +169,7 @@ class Tokenizer:
     def encode_ordinary(self, text):
         """Encode text, treating special token strings as plain text."""
         ids = []
-        for chunk in SPLIT_PATTERN.findall(text):
+        for chunk in split_chunks(text):
             cached = self._cache.get(chunk)
             if cached is None:
                 cached = self._encode_chunk(chunk.encode("utf-8"))
@@ -186,6 +200,7 @@ class Tokenizer:
             "type": "byte-level-bpe",
             "version": 1,
             "special_tokens": self.special_tokens,
+            "trained_chars": self.trained_chars,
             "merges": [list(p) for p in self.merges],
         }
         Path(path).write_text(json.dumps(data), encoding="utf-8")
@@ -193,4 +208,4 @@ class Tokenizer:
     @classmethod
     def load(cls, path):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        return cls(data["merges"], data["special_tokens"])
+        return cls(data["merges"], data["special_tokens"], data.get("trained_chars"))

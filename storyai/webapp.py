@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import numpy as np
 
 from .checkpoint import read_checkpoint_info
-from .data import list_story_files, save_story
+from .data import count_new_stories, list_story_files, save_story
 from .model import PRESETS
 from .trainer import TrainingError, train
 from .writer import NoModelError, StoryWriter
@@ -54,9 +54,12 @@ class StoryApp:
         }
 
     def add_story(self, text, name=None):
-        if not text or not text.strip():
+        text = (text or "").replace("\ufeff", "").replace("\r\n", "\n").replace("\r", "\n")
+        if not text.strip():
             raise ValueError("That story is empty.")
-        path = save_story(self.stories_dir, text.replace("\r\n", "\n"), name=name)
+        if count_new_stories(self.stories_dir, text) == 0:
+            raise ValueError("That story is already in your collection.")
+        path = save_story(self.stories_dir, text, name=name)
         return {"saved": path.name}
 
     def delete_story(self, name):

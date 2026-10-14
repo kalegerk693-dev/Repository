@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from .checkpoint import load_checkpoint, save_checkpoint
-from .data import auto_vocab_size, encode_stories, get_batch, is_holdout, read_stories
+from .data import auto_vocab_size, encode_stories, get_batch, is_holdout, read_stories, story_id
 from .model import GPT, PRESETS, GPTConfig
 from .optim import AdamW, clip_grad_norm, learning_rate
 from .tokenizer import END_OF_STORY, Tokenizer
@@ -52,14 +52,25 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
     log(f"Found {len(stories)} {'story' if len(stories) == 1 else 'stories'} "
         f"({num_chars:,} characters).")
 
+    if vocab_size is not None and vocab_size < 257:
+        raise TrainingError("The vocabulary needs at least 257 tokens "
+                            "(256 bytes plus the end-of-story token).")
     if fresh:
         for path in (tok_path, ckpt_path):
             path.unlink(missing_ok=True)
+    if ckpt_path.exists() and not tok_path.exists():
+        raise TrainingError("Found a trained model but its tokenizer.json is missing, so the two "
+                            "can't be matched up. Start over (--fresh).")
 
     # 1. The tokenizer: learn how to chop text into tokens.
     if tok_path.exists():
         tokenizer = Tokenizer.load(tok_path)
         log(f"Using your tokenizer ({tokenizer.vocab_size} tokens).")
+        if vocab_size:
+            log("  (--vocab-size ignored: your tokenizer already exists. Start over (--fresh) to rebuild it.)")
+        if tokenizer.trained_chars and num_chars > 4 * tokenizer.trained_chars:
+            log("  Tip: you have far more text now than when the tokenizer was made. Starting over "
+                "(--fresh) would build a better vocabulary, but the brain would relearn from zero.")
     else:
         vocab_size = vocab_size or auto_vocab_size(num_chars)
         log(f"Training the BPE tokenizer (target vocabulary: {vocab_size} tokens)...")
@@ -69,21 +80,7 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
         words = [w for w in pieces if w.startswith(" ") and w[1:].isalpha()][-12:]
         log("  some tokens it invented: " + " ".join(repr(w) for w in words))
 
-    # 2. Split off a few stories as a quiz the model never studies.
-    use_holdout = holdout and len(stories) >= 10
-    train_stories = [s for s in stories if not (use_holdout and is_holdout(s))]
-    val_stories = [s for s in stories if use_holdout and is_holdout(s)]
-    if not train_stories or not val_stories:
-        train_stories, val_stories = stories, []
-    train_data = encode_stories(train_stories, tokenizer)
-    val_data = encode_stories(val_stories, tokenizer) if val_stories else None
-    line = f"Training on {len(train_stories)} stories ({len(train_data):,} tokens)"
-    if val_data is not None:
-        log(line + f", quizzing on {len(val_stories)} held-out stories ({len(val_data):,} tokens).")
-    else:
-        log(line + ". (No held-out quiz yet; one appears once you have about 10+ stories.)")
-
-    # 3. The brain: start fresh, or keep teaching the one you already have.
+    # 2. The brain: start fresh, or keep teaching the one you already have.
     meta = {"steps_trained": 0}
     if ckpt_path.exists():
         model, optimizer, meta = load_checkpoint(ckpt_path)
@@ -104,6 +101,31 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
     log(f"  {c.n_layer} layers, {c.n_head} heads, width {c.n_embd}, "
         f"reads {c.block_size} tokens of context.")
 
+    # 3. Keep about 1 in 10 stories aside as a quiz the model never studies. Stories it
+    # already studied in earlier runs can't be in the quiz, or the quiz would be too easy.
+    seen = set(meta.get("seen", []))
+    quiz = []
+    if holdout and len(stories) >= 10:
+        quiz = [s for s in stories if is_holdout(s) and story_id(s) not in seen]
+        if quiz and sum(map(len, quiz)) > 0.3 * num_chars:
+            log("(No quiz this run: the stories picked for it hold too much of your text.)")
+            quiz = []
+    in_quiz = set(quiz)
+    train_stories = [s for s in stories if s not in in_quiz]
+    train_data = encode_stories(train_stories, tokenizer)
+    val_data = encode_stories(quiz, tokenizer) if quiz else None
+    line = f"Training on {len(train_stories)} stories ({len(train_data):,} tokens)"
+    if val_data is not None:
+        line += f", quizzing on {len(quiz)} held-out stories ({len(val_data):,} tokens)."
+    elif not holdout:
+        line += ". (Quiz turned off with --no-holdout.)"
+    elif len(stories) < 10:
+        line += ". (No held-out quiz yet; one appears once you have about 10+ stories.)"
+    else:
+        line += ". (No quiz this run: none of the stories picked for it are new to the model.)"
+    log(line)
+    meta["seen"] = sorted(seen | {story_id(s) for s in train_stories})
+
     warmup = min(100, max(1, steps // 10))
     best_val, best_step, checks_without_progress = float("inf"), 0, 0
     steps_at_start = meta.get("steps_trained", 0)
@@ -118,11 +140,13 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
 
     def evaluate_and_save(step):
         nonlocal best_val, best_step, checks_without_progress
+        meta["steps_trained"] = steps_at_start + step
+        # Without a quiz, always keep the newest brain. Save first, before the slow checks.
+        saved = val_data is None and save()
         train_loss = estimate_loss(model, train_data, batch_size)
         line = f"  [check] step {step}: train loss {train_loss:.3f}"
-        meta["steps_trained"] = steps_at_start + step
         if val_data is None:
-            line += " (saved)" if save() else ""
+            line += " (saved)" if saved else ""
         else:
             val_loss = estimate_loss(model, val_data, batch_size)
             line += f", quiz loss {val_loss:.3f}"
@@ -164,12 +188,18 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
                 log(f"step {step:>5}/{steps} | loss {loss:.3f} | lr {lr_now:.1e} | "
                     f"{per_step:.2f}s/step | ~{left / 60:.0f} min left")
                 on_progress(step=step, steps=steps, loss=loss, seconds_left=left)
-            if step % eval_every == 0 and step != steps:
+            if eval_every > 0 and step % eval_every == 0 and step != steps:
                 evaluate_and_save(step)
             if should_stop():
                 log("\nStopping early...")
                 break
     except KeyboardInterrupt:
-        log("\nStopping early...")
-    evaluate_and_save(step)
+        log("\nStopping early... saving, please wait.")
+    try:
+        evaluate_and_save(step)
+    except KeyboardInterrupt:  # impatient second Ctrl+C: still keep the work if we can
+        if val_data is None:
+            save()
+        log("Stopped.")
+        return
     log(f"\nDone. Your model is saved in {out_dir}/.")

@@ -26,6 +26,9 @@ class StoryWriter:
             raise NoModelError("No trained model yet. Feed it stories, then train it.")
         self.model, _, self.meta = load_checkpoint(model_dir / "model.npz")
         self.tokenizer = Tokenizer.load(model_dir / "tokenizer.json")
+        if self.tokenizer.vocab_size != self.model.config.vocab_size:
+            raise NoModelError("The saved model and tokenizer don't match. "
+                               "Train again, starting over from scratch (--fresh).")
         self.eos = self.tokenizer.special_ids[END_OF_STORY]
 
     def write(self, prompt="", max_tokens=600, temperature=0.8, top_k=None, top_p=0.95,

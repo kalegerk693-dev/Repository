@@ -45,9 +45,11 @@ python story.py write "Once upon a time"   # let it write an original story
 The `stories/` folder is the AI's whole world. There are three ways to put stories in:
 
 - Save each story as its own `.txt` file in `stories/`.
-- Put many stories in one `.txt` file, separated by a line containing only `<|endofstory|>`.
+- Put many stories in one `.txt` file, separated by a line containing only `<|endofstory|>`. (`<|endoftext|>`, used by datasets like TinyStories, works too.)
 - Run `python story.py feed`, paste or type a story, then type `END` on its own line.
   `python story.py feed --file my_story.txt` copies a file in for you.
+
+Any plain-text file works, whether it's saved as UTF-8, Notepad's "Unicode" or Windows "ANSI". Stories you've already fed it are skipped, so feeding a file twice won't make it memorise that story.
 
 **How much do you need?** More stories make it more original:
 
@@ -88,7 +90,7 @@ step  1000/1500 | loss 4.147 | lr 3.6e-04 | 0.30s/step | ~3 min left
 - **quiz loss**: about 1 in 10 stories (once you have 10+) is kept out of training as a quiz. If the quiz loss stops improving while the train loss keeps dropping, the AI is memorising rather than learning to write. Only the best quiz score gets saved, so you keep the version that writes most originally. Add `--no-holdout` to train on every story.
 - **it writes**: a short live sample, so you can watch it go from gibberish to stories.
 
-**Ctrl+C stops safely** at any time, and progress is kept.
+**Ctrl+C stops safely** at any time, and progress is kept. In the app, use the **Stop** button.
 
 **Adding more stories later:** feed them in and run `python story.py train` again. It picks up where it left off and keeps learning, now including the new stories. To throw everything away and start from zero (for example after adding lots of new text, so the tokenizer can relearn its vocabulary), use `--fresh`.
 

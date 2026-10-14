@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story AI</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1b18; --muted: #6b665e; --line: #e4e0d8;
+    --accent: #5b4bd6; --accent-text: #ffffff; --accent-soft: #ece9fb; --danger: #c0392b;
+    --story-bg: #fbfaf7; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151413; --card: #1e1d1b; --text: #ece9e3; --muted: #a39e94; --line: #34312d;
+      --accent: #9387f0; --accent-text: #15131f; --accent-soft: #2a2740; --danger: #ef6b5b;
+      --story-bg: #191816;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 64px; }
+  header h1 { margin: 0; font-size: 1.9rem; letter-spacing: -0.02em; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  .brain { margin-top: 12px; display: inline-block; padding: 4px 12px; border-radius: 999px;
+           background: var(--accent-soft); color: var(--text); font-size: 0.9rem; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+            padding: 20px; margin-top: 20px; }
+  h2 { margin: 0 0 4px; font-size: 1.2rem; }
+  h2 .num { color: var(--accent); margin-right: 6px; }
+  .hint { color: var(--muted); font-size: 0.92rem; margin: 0 0 14px; }
+  textarea, input[type=text], input[type=number], select {
+    width: 100%; font: inherit; color: var(--text); background: var(--story-bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  textarea { min-height: 150px; resize: vertical; }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--muted); }
+  button, .button { font: inherit; font-weight: 600; border-radius: 10px; padding: 9px 16px;
+           border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text);
+           cursor: pointer; }
+  button.secondary, .button.secondary { background: transparent; color: var(--accent); }
+  button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .check { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 0.92rem; }
+  .count { color: var(--muted); font-size: 0.92rem; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 0.92rem; }
+  ul.stories { list-style: none; margin: 8px 0 0; padding: 0; max-height: 260px; overflow: auto;
+               border: 1px solid var(--line); border-radius: 10px; }
+  ul.stories li { display: flex; gap: 10px; align-items: center; padding: 8px 12px;
+                  border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+  ul.stories li:last-child { border-bottom: 0; }
+  ul.stories .start { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  ul.stories .words { color: var(--muted); white-space: nowrap; }
+  ul.stories button { padding: 2px 9px; font-size: 0.85rem; }
+  .bar { height: 10px; background: var(--accent-soft); border-radius: 999px; overflow: hidden; margin-top: 14px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.4s; }
+  .stats { margin-top: 8px; font-size: 0.92rem; color: var(--muted); min-height: 1.4em; }
+  .preview { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent);
+             background: var(--story-bg); border-radius: 6px; font-style: italic; display: none; }
+  pre.log { font: 12px/1.45 var(--mono); background: var(--story-bg); border: 1px solid var(--line);
+            border-radius: 10px; padding: 10px; max-height: 260px; overflow: auto;
+            white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
+  .error { color: var(--danger); margin-top: 10px; font-weight: 600; }
+  .story { margin-top: 16px; padding: 18px; background: var(--story-bg); border: 1px solid var(--line);
+           border-radius: 12px; white-space: pre-wrap; font-family: Georgia, "Times New Roman", serif;
+           font-size: 1.08rem; line-height: 1.65; min-height: 3em; display: none; }
+  .story .ending { display: block; margin-top: 14px; text-align: center; color: var(--muted);
+                   font-family: system-ui, sans-serif; font-size: 0.9rem; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text);
+           color: var(--bg); padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity 0.3s;
+           pointer-events: none; max-width: calc(100% - 32px); }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Story AI</h1>
+    <p>Built completely from scratch. It learns to write only from the stories you give it.</p>
+    <span class="brain" id="brain">Checking on your AI…</span>
+  </header>
+
+  <section>
+    <h2><span class="num">1</span>Feed it stories</h2>
+    <p class="hint">Paste a story and press <b>Add story</b>, or upload .txt files. The more stories, the more original its writing gets.</p>
+    <textarea id="storyText" placeholder="Once upon a time…"></textarea>
+    <div class="row">
+      <button id="addBtn">Add story</button>
+      <label class="button secondary" for="fileInput">Upload .txt files</label>
+      <input id="fileInput" type="file" accept=".txt,text/plain" multiple hidden>
+      <span class="count" id="storyCount"></span>
+    </div>
+    <details id="storyListBox">
+      <summary>See your stories</summary>
+      <ul class="stories" id="storyList"></ul>
+    </details>
+  </section>
+
+  <section>
+    <h2><span class="num">2</span>Teach it</h2>
+    <p class="hint">Training shows it random pieces of your stories over and over until it learns to predict what comes next. You can stop at any time; progress is kept. Train again after adding stories and it keeps learning.</p>
+    <div class="grid">
+      <label class="field">How long to train
+        <select id="steps">
+          <option value="300">Quick try (300 steps)</option>
+          <option value="2000" selected>Normal (2,000 steps)</option>
+          <option value="5000">Long (5,000 steps)</option>
+          <option value="20000">Very long (20,000 steps)</option>
+        </select>
+      </label>
+      <label class="field">Brain size
+        <select id="size">
+          <option value="tiny">Tiny: fast</option>
+          <option value="small">Small: better, ~5× slower</option>
+          <option value="medium">Medium: best, ~12× slower</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="trainBtn">Start training</button>
+      <button id="stopBtn" class="danger" disabled>Stop</button>
+      <label class="check"><input type="checkbox" id="fresh"> Start over from scratch</label>
+    </div>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="stats" id="stats"></div>
+    <div class="preview" id="preview"></div>
+    <div class="error" id="trainError" hidden></div>
+    <details>
+      <summary>Training log</summary>
+      <pre class="log" id="log">Nothing yet.</pre>
+    </details>
+  </section>
+
+  <section>
+    <h2><span class="num">3</span>Let it write</h2>
+    <p class="hint">Give it an opening line, or leave it empty for a story that's completely its own.</p>
+    <input type="text" id="prompt" placeholder="The dragon was afraid of (optional)">
+    <div class="grid" style="margin-top:12px">
+      <label class="field"><span>Creativity: <b id="tempLabel"></b></span>
+        <input type="range" id="temperature" min="0.3" max="1.3" step="0.05" value="0.8">
+      </label>
+      <label class="field">Length
+        <select id="length">
+          <option value="short">Short</option>
+          <option value="medium" selected>Medium</option>
+          <option value="long">Long</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="writeBtn" disabled>Write a story</button>
+    </div>
+    <div class="story" id="story"></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let status = { training: false, model: null };
+let writing = false;
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-StoryAI": "1" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = "Something went wrong.";
+    try { msg = (await res.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res;
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 3000);
+}
+
+// ---------------------------------------------------------------- stories
+async function loadStories() {
+  const data = await (await api("/api/stories")).json();
+  const n = data.stories.length;
+  $("storyCount").textContent = n ? `${n} ${n === 1 ? "story" : "stories"} · ${data.total_words.toLocaleString()} words` : "No stories yet";
+  const list = $("storyList");
+  list.replaceChildren(...data.stories.map(s => {
+    const li = document.createElement("li");
+    const start = document.createElement("span");
+    start.className = "start";
+    start.textContent = s.start || s.name;
+    start.title = s.name;
+    const words = document.createElement("span");
+    words.className = "words";
+    words.textContent = `${s.words.toLocaleString()} words`;
+    const del = document.createElement("button");
+    del.className = "danger";
+    del.textContent = "Remove";
+    del.onclick = async () => {
+      if (!confirm(`Remove "${s.name}"? This deletes the file.`)) return;
+      try { await api("/api/stories/delete", { name: s.name }); loadStories(); }
+      catch (e) { toast(e.message); }
+    };
+    li.append(start, words, del);
+    return li;
+  }));
+  $("storyListBox").hidden = n === 0;
+}
+
+$("addBtn").onclick = async () => {
+  const text = $("storyText").value;
+  if (!text.trim()) { toast("Write or paste a story first."); return; }
+  try {
+    await api("/api/stories", { text });
+    $("storyText").value = "";
+    toast("Story added!");
+    loadStories();
+  } catch (e) { toast(e.message); }
+};
+
+$("fileInput").onchange = async e => {
+  const files = [...e.target.files];
+  let added = 0;
+  for (const f of files) {
+    try {
+      await api("/api/stories", { text: await f.text(), name: f.name.replace(/\.[^.]+$/, "") });
+      added++;
+    } catch (err) { toast(`${f.name}: ${err.message}`); }
+  }
+  e.target.value = "";
+  if (added) toast(`Added ${added} ${added === 1 ? "story file" : "story files"}!`);
+  loadStories();
+};
+
+// --------------------------------------------------------------- training
+$("trainBtn").onclick = async () => {
+  try {
+    await api("/api/train", { steps: Number($("steps").value), size: $("size").value, fresh: $("fresh").checked });
+    $("fresh").checked = false;
+    poll();
+  } catch (e) { toast(e.message); }
+};
+$("stopBtn").onclick = async () => {
+  $("stopBtn").disabled = true;
+  await api("/api/stop", {});
+  toast("Stopping after the current step and saving…");
+};
+$("fresh").onchange = render;
+
+function render() {
+  const s = status;
+  const m = s.model;
+  $("brain").textContent = m
+    ? `Your AI: ${m.size} brain, trained ${m.steps_trained.toLocaleString()} steps`
+    : "Your AI has no brain yet: add stories, then train it";
+  $("trainBtn").disabled = s.training;
+  $("stopBtn").disabled = !s.training;
+  $("size").disabled = s.training || (m && !$("fresh").checked);
+  if (m && !$("fresh").checked) $("size").value = m.size in { tiny: 1, small: 1, medium: 1 } ? m.size : "tiny";
+  $("writeBtn").disabled = !m || writing;
+
+  const p = s.progress || {};
+  const pct = p.steps ? Math.min(100, (100 * (p.step || 0)) / p.steps) : 0;
+  $("barFill").style.width = (s.training || p.step ? pct : 0) + "%";
+  const bits = [];
+  if (p.steps) bits.push(`step ${(p.step || 0).toLocaleString()} of ${p.steps.toLocaleString()}`);
+  if (p.loss !== undefined) bits.push(`loss ${p.loss.toFixed(3)}`);
+  if (p.val_loss != null) bits.push(`quiz loss ${p.val_loss.toFixed(3)}`);
+  if (s.training && p.seconds_left !== undefined) bits.push(`about ${Math.max(1, Math.round(p.seconds_left / 60))} min left`);
+  if (!s.training && p.step && !s.error) bits.push(p.stopped ? "stopped early" : "finished");
+  $("stats").textContent = s.training && !bits.length ? "Getting ready…" : bits.join(" · ");
+  $("preview").style.display = p.preview ? "block" : "none";
+  if (p.preview) $("preview").textContent = `It writes: “${p.preview}”`;
+  $("trainError").hidden = !s.error;
+  $("trainError").textContent = s.error || "";
+
+  const log = $("log");
+  const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.textContent = s.log && s.log.length ? s.log.join("\n") : "Nothing yet.";
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+let pollTimer;
+async function poll() {
+  clearTimeout(pollTimer);
+  try {
+    status = await (await api("/api/status")).json();
+    render();
+  } catch (e) {
+    $("brain").textContent = "Can't reach the Story AI server. Is it still running?";
+  }
+  pollTimer = setTimeout(poll, status.training ? 1000 : 4000);
+}
+
+// ---------------------------------------------------------------- writing
+const temp = $("temperature");
+const tempNames = v => v < 0.55 ? "safe" : v < 0.95 ? "balanced" : v < 1.15 ? "adventurous" : "wild";
+temp.oninput = () => { $("tempLabel").textContent = `${tempNames(+temp.value)} (${(+temp.value).toFixed(2)})`; };
+temp.oninput();
+
+$("writeBtn").onclick = async () => {
+  const box = $("story");
+  box.style.display = "block";
+  box.textContent = "";
+  writing = true;
+  render();
+  try {
+    const res = await api("/api/write", { prompt: $("prompt").value, temperature: +temp.value, length: $("length").value });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      box.textContent = text.split("\u0000")[0];
+    }
+    const cut = text.lastIndexOf("\u0000");
+    const story = cut < 0 ? text : text.slice(0, cut);
+    const how = cut < 0 ? "" : text.slice(cut + 1);
+    box.textContent = story;
+    const end = document.createElement("span");
+    end.className = "ending";
+    end.textContent = how === "end" ? "— The End —" : "(It was still going. Pick a longer length to let it finish.)";
+    box.append(end);
+  } catch (e) {
+    box.textContent = e.message;
+  } finally {
+    writing = false;
+    render();
+  }
+};
+
+loadStories();
+poll();
+</script>
+</body>
+</html>

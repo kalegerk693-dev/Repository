@@ -304,13 +304,18 @@ class GPT:
     # ------------------------------------------------------------- generation
 
     def generate(self, ids, max_new_tokens, temperature=0.8, top_k=None, top_p=0.95,
-                 stop_id=None, rng=None):
-        """Continue the token list `ids`, yielding one new token id at a time."""
+                 stop_id=None, rng=None, min_new_tokens=0):
+        """Continue the token list `ids`, yielding one new token id at a time.
+
+        Stops at `stop_id`, but never before `min_new_tokens` tokens have been written.
+        """
         rng = rng if rng is not None else np.random.default_rng()
         ids = list(ids)
-        for _ in range(max_new_tokens):
+        for n in range(max_new_tokens):
             context = np.array([ids[-self.config.block_size:]])
             logits, _ = self.forward(context)
+            if stop_id is not None and n < min_new_tokens:
+                logits[0, stop_id] = -np.inf
             next_id = sample_next(logits[0], temperature, top_k, top_p, rng)
             if next_id == stop_id:
                 return
@@ -329,7 +334,7 @@ def sample_next(logits, temperature=0.8, top_k=None, top_p=0.95, rng=None):
     if temperature <= 0:
         return int(np.argmax(logits))
     logits = logits / temperature
-    if top_k and top_k < logits.size:
+    if top_k is not None and 0 < top_k < logits.size:
         cutoff = np.partition(logits, -top_k)[-top_k]
         logits = np.where(logits < cutoff, -np.inf, logits)
     probs = np.exp(logits - logits.max())
@@ -338,6 +343,7 @@ def sample_next(logits, temperature=0.8, top_k=None, top_p=0.95, rng=None):
         order = np.argsort(-probs)
         sorted_probs = probs[order]
         keep = (np.cumsum(sorted_probs) - sorted_probs) < top_p
+        keep[0] = True  # always keep the most likely token, so top_p <= 0 means "pick the top one"
         filtered = np.zeros_like(probs)
         filtered[order[keep]] = sorted_probs[keep]
         probs = filtered / filtered.sum()

@@ -77,7 +77,7 @@ class Tokenizer:
     # ------------------------------------------------------------------ training
 
     @classmethod
-    def train(cls, texts, vocab_size, special_tokens=(END_OF_STORY,), verbose=False):
+    def train(cls, texts, vocab_size, special_tokens=(END_OF_STORY,), verbose=False, log=print):
         """Learn merges from `texts` until the vocabulary has `vocab_size` tokens."""
         num_merges = vocab_size - 256 - len(special_tokens)
         if num_merges < 0:
@@ -133,10 +133,10 @@ class Tokenizer:
                     del pair_counts[p]
 
             if verbose and len(merges) % report_every == 0:
-                print(f"  learned {len(merges)}/{num_merges} merges", flush=True)
+                log(f"  learned {len(merges)}/{num_merges} merges")
 
         if verbose and len(merges) < num_merges:
-            print(f"  stopped at {len(merges)} merges: no pair of tokens repeats any more")
+            log(f"  stopped at {len(merges)} merges: no pair of tokens repeats any more")
         return cls(merges, special_tokens)
 
     # ------------------------------------------------------------ encode/decode

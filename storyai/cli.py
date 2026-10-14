@@ -1,10 +1,7 @@
 """Command line: feed stories, train the AI, and have it write new ones."""
 
 import argparse
-import codecs
-import shutil
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -14,29 +11,24 @@ DEFAULT_STORIES = ROOT / "stories"
 DEFAULT_MODEL_DIR = ROOT / "checkpoints"
 
 
-def new_story_path(stories_dir):
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path, n = stories_dir / f"story_{stamp}.txt", 1
-    while path.exists():
-        n += 1
-        path = stories_dir / f"story_{stamp}_{n}.txt"
-    return path
+def say(message=""):
+    print(message, flush=True)
 
 
 def cmd_feed(args):
-    from .data import read_stories
+    from .data import read_stories, save_story
 
-    stories_dir = Path(args.stories)
-    stories_dir.mkdir(parents=True, exist_ok=True)
     if args.file:
         source = Path(args.file)
-        dest = stories_dir / source.name
-        if dest.exists():
-            dest = new_story_path(stories_dir)
-        shutil.copyfile(source, dest)
-        print(f"Copied {source} to {dest}")
+        if not source.is_file():
+            raise SystemExit(f"Can't find the file {source}")
+        text = source.read_text(encoding="utf-8-sig", errors="replace").replace("\r\n", "\n")
+        if not text.strip():
+            raise SystemExit(f"{source} is empty.")
+        dest = save_story(args.stories, text, name=source.stem)
+        say(f"Copied {source} to {dest}")
     else:
-        print("Type or paste your story. When you're done, type END on its own line and press Enter.\n")
+        say("Type or paste your story. When you're done, type END on its own line and press Enter.\n")
         lines = []
         for line in sys.stdin:
             if line.strip() == "END":
@@ -44,61 +36,46 @@ def cmd_feed(args):
             lines.append(line)
         text = "".join(lines).strip()
         if not text:
-            print("Nothing to save.")
+            say("Nothing to save.")
             return
-        dest = new_story_path(stories_dir)
-        dest.write_text(text + "\n", encoding="utf-8")
-        print(f"\nSaved your story ({len(text.split()):,} words) to {dest}")
-    n = len(read_stories(stories_dir))
-    print(f"Your AI has {n} {'story' if n == 1 else 'stories'} to learn from. "
-          "Run `python story.py train` to teach it.")
+        dest = save_story(args.stories, text)
+        say(f"\nSaved your story ({len(text.split()):,} words) to {dest}")
+    n = len(read_stories(args.stories))
+    say(f"Your AI has {n} {'story' if n == 1 else 'stories'} to learn from. "
+        "Run `python story.py train` to teach it.")
 
 
 def cmd_train(args):
-    from .trainer import train
+    from .trainer import TrainingError, train
 
-    train(args.stories, args.model_dir, size=args.size, steps=args.steps,
-          batch_size=args.batch_size, lr=args.lr, vocab_size=args.vocab_size,
-          fresh=args.fresh, holdout=not args.no_holdout, eval_every=args.eval_every,
-          seed=args.seed)
-
-
-def load_model_and_tokenizer(model_dir):
-    from .checkpoint import load_checkpoint
-    from .tokenizer import Tokenizer
-
-    model_dir = Path(model_dir)
-    if not (model_dir / "model.npz").exists():
-        raise SystemExit("No trained model yet. Feed it stories, then run:  python story.py train")
-    model, _, meta = load_checkpoint(model_dir / "model.npz")
-    return model, Tokenizer.load(model_dir / "tokenizer.json"), meta
+    try:
+        train(args.stories, args.model_dir, size=args.size, steps=args.steps,
+              batch_size=args.batch_size, lr=args.lr, vocab_size=args.vocab_size,
+              fresh=args.fresh, holdout=not args.no_holdout, eval_every=args.eval_every,
+              seed=args.seed, log=say)
+    except TrainingError as e:
+        raise SystemExit(f"{e}\nPut .txt files in {args.stories}/ or run:  python story.py feed")
+    say("Make it write with:  python story.py write")
 
 
 def cmd_write(args):
-    from .tokenizer import END_OF_STORY
+    from .writer import NoModelError, StoryWriter
 
-    model, tokenizer, meta = load_model_and_tokenizer(args.model_dir)
-    eos = tokenizer.special_ids[END_OF_STORY]
+    try:
+        writer = StoryWriter(args.model_dir)
+    except NoModelError as e:
+        raise SystemExit(f"{e}\nRun:  python story.py train")
     rng = np.random.default_rng(args.seed)
-    prompt = args.prompt.rstrip(" ")  # tokens carry their own leading space
-
     for n in range(args.count):
         if args.count > 1:
-            print(f"\n=== Story {n + 1} ===\n")
-        print(prompt, end="", flush=True)
-        # Tokens can split a multi-byte character; this prints only complete ones.
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        written = 0
-        for token in model.generate([eos] + tokenizer.encode(prompt), args.max_tokens,
-                                    temperature=args.temperature, top_k=args.top_k,
-                                    top_p=args.top_p, stop_id=eos, rng=rng):
-            print(decoder.decode(tokenizer.vocab[token]), end="", flush=True)
-            written += 1
-        print(decoder.decode(b"", final=True))
-        if written == args.max_tokens:
-            print("\n[...cut off at --max-tokens; raise it for longer stories]")
-        else:
-            print("\n— The End —")
+            say(f"\n=== Story {n + 1} ===\n")
+        story = writer.write(args.prompt, args.max_tokens, temperature=args.temperature,
+                             top_k=args.top_k, top_p=args.top_p, rng=rng)
+        for piece in story:
+            print(piece, end="", flush=True)
+        say()
+        say("\n— The End —" if story.finished
+            else "\n[...cut off at --max-tokens; raise it for longer stories]")
 
 
 def cmd_tokens(args):
@@ -109,12 +86,23 @@ def cmd_tokens(args):
         raise SystemExit("No tokenizer yet. Run `python story.py train` first.")
     tokenizer = Tokenizer.load(path)
     ids = tokenizer.encode(args.text)
-    print(f"{len(args.text)} characters -> {len(ids)} tokens\n")
-    print("".join(f"[{tokenizer.decode([i])}]" for i in ids))
-    print("\nids:", ids)
+    say(f"{len(args.text)} characters -> {len(ids)} tokens\n")
+    say("".join(f"[{tokenizer.decode([i])}]" for i in ids))
+    say(f"\nids: {ids}")
+
+
+def cmd_app(args):
+    from .webapp import serve
+
+    serve(args.stories, args.model_dir, host=args.host, port=args.port)
 
 
 def main(argv=None):
+    # Never crash on a character the terminal can't show (e.g. emoji on older Windows consoles).
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     parser = argparse.ArgumentParser(
         prog="story.py", description="A story-writing AI built completely from scratch.")
     parser.add_argument("--stories", default=DEFAULT_STORIES, help="folder of .txt stories")
@@ -122,8 +110,14 @@ def main(argv=None):
                         help="where the tokenizer and trained model are saved")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    p = sub.add_parser("app", help="open the point-and-click web page (easiest way to use it)")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--host", default="127.0.0.1",
+                   help="use 0.0.0.0 to let other devices on your network open it")
+    p.set_defaults(func=cmd_app)
+
     p = sub.add_parser("feed", help="give the AI a new story to learn from")
-    p.add_argument("--file", help="copy this .txt file in instead of typing/pasting")
+    p.add_argument("--file", help="copy this text file in instead of typing/pasting")
     p.set_defaults(func=cmd_feed)
 
     p = sub.add_parser("train", help="teach the AI using your stories")

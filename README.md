@@ -9,19 +9,35 @@ A story-writing AI where **every part is ours**:
 
 The only library it uses is NumPy, for basic arrays and matrix multiplication. There is no PyTorch, no TensorFlow, no Hugging Face, and no pretrained weights.
 
-## Quick start
+## Use it in one click
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/kalegerk693-dev/Repository?quickstart=1)
+
+Press the button and then **Create codespace**. After a minute or two, the Story AI app opens in a new browser tab. If your browser blocks the tab, open the **Ports** tab at the bottom of the editor and click the 🌐 globe icon next to *Story AI*. Everything is saved in your codespace, so you can come back to it from [github.com/codespaces](https://github.com/codespaces).
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kalegerk693-dev/Repository/blob/master/StoryAI.ipynb)
+
+Or use Google Colab: press ▶ on the first cell, then click the link it shows. Colab forgets everything when you close it, so use the notebook's download cell to save your AI.
+
+The app has three steps, each with buttons:
+
+1. **Feed it stories.** Paste stories or upload `.txt` files.
+2. **Teach it.** Press *Start training* and watch the loss drop and its writing improve.
+3. **Let it write.** Give it an opening line (or nothing) and press *Write a story*.
+
+## On your own computer
 
 ```bash
 pip install numpy
+python story.py app        # then open http://localhost:8000
+```
 
-# 1. Feed it stories: drop .txt files into stories/, or paste one in:
-python story.py feed
+Or use the commands directly:
 
-# 2. Teach it:
-python story.py train
-
-# 3. Let it write an original story:
-python story.py write "Once upon a time"
+```bash
+python story.py feed                       # paste a story (or drop .txt files into stories/)
+python story.py train                      # teach it
+python story.py write "Once upon a time"   # let it write an original story
 ```
 
 ## 1. Feeding it stories
@@ -118,7 +134,10 @@ python story.py tokens "Once upon a time, a dragon sneezed."
 | `storyai/data.py` | Reads your stories, turns them into a token stream, makes training batches |
 | `storyai/trainer.py` | The training loop: quiz split, checks, saving the best model |
 | `storyai/checkpoint.py` | Saves and loads the brain (`checkpoints/model.npz`) |
-| `storyai/cli.py` | The `feed` / `train` / `write` / `tokens` commands |
+| `storyai/writer.py` | Loads a trained brain and writes a story piece by piece |
+| `storyai/cli.py` | The `app` / `feed` / `train` / `write` / `tokens` commands |
+| `storyai/webapp.py`, `storyai/app.html` | The point-and-click web app (Python's built-in web server, nothing to install) |
+| `.devcontainer/`, `StoryAI.ipynb` | One-click setups for GitHub Codespaces and Google Colab |
 
 The brain, step by step:
 

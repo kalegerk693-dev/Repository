@@ -1,0 +1,10 @@
+{
+  "name": "Story AI",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install --user -r requirements.txt",
+  "postAttachCommand": "python story.py app",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "Story AI", "onAutoForward": "openBrowser" }
+  }
+}

@@ -2,6 +2,8 @@
 
 import hashlib
 import math
+import re
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +25,31 @@ def read_stories(folder):
             if part:
                 stories.append(part)
     return stories
+
+
+def save_story(folder, text, name=None):
+    """Save one story as a new .txt file in `folder` and return its path.
+    Never overwrites an existing file."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^\w-]+", "_", name).strip("_")[:60] if name else ""
+    stem = stem or "story_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    path, n = folder / f"{stem}.txt", 1
+    while path.exists():
+        n += 1
+        path = folder / f"{stem}_{n}.txt"
+    path.write_text(text.strip() + "\n", encoding="utf-8")
+    return path
+
+
+def list_story_files(folder):
+    """[(path, number of words, first words)] for every story file."""
+    files = []
+    for path in sorted(Path(folder).rglob("*.txt")):
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        words = text.split()
+        files.append((path, len(words), " ".join(words[:12])))
+    return files
 
 
 def is_holdout(story):

@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -23,7 +24,14 @@ def save_checkpoint(path, model, optimizer=None, meta=None):
     # Write to a temporary file first so a crash never leaves a broken checkpoint.
     tmp = path.with_name(path.stem + ".tmp.npz")
     np.savez(tmp, **arrays)
-    os.replace(tmp, path)
+    for attempt in range(20):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:  # Windows: someone has the old file open for a moment
+            if attempt == 19:
+                raise
+            time.sleep(0.25)
 
 
 def load_checkpoint(path):
@@ -39,3 +47,9 @@ def load_checkpoint(path):
             optimizer.v = {k: f[f"adam_v/{k}"].astype(np.float32) for k in model.params}
             optimizer.t = info["adam_t"]
     return model, optimizer, info["meta"]
+
+
+def read_checkpoint_info(path):
+    """Just the config and meta, without loading the weights."""
+    with np.load(path, allow_pickle=False) as f:
+        return json.loads(f["info"].item())

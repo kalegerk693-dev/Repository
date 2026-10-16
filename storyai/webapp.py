@@ -15,9 +15,9 @@ from urllib.parse import urlparse
 import numpy as np
 
 from .checkpoint import read_checkpoint_info
-from .data import count_new_stories, list_story_files, save_story, story_files, story_sources
+from .data import count_new_stories, list_story_files, save_story, story_files
 from .model import PRESETS
-from .originality import CopyChecker, describe
+from .originality import SEEN_FILE, CopyChecker, checker_sources, describe
 from .trainer import TrainingError, train
 from .writer import NoModelError, StoryWriter
 
@@ -147,11 +147,11 @@ class StoryApp:
 
     def originality(self, text):
         """How much of `text` is copied from your stories (None if there are no stories)."""
-        files = story_files(self.stories_dir)
-        stamp = [(str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in files]
+        files = story_files(self.stories_dir) + [self.model_dir / SEEN_FILE]
+        stamp = [(str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in files if f.exists()]
         with self.lock:  # rebuild the index only when your stories change
             if stamp != self._checker_stamp:
-                sources = story_sources(self.stories_dir)
+                sources = checker_sources(self.stories_dir, self.model_dir)
                 self._checker = CopyChecker(sources) if sources else None
                 self._checker_stamp = stamp
             checker = self._checker

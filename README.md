@@ -134,14 +134,19 @@ The AI learns by predicting the next word of your stories. With enough stories i
 - `python story.py write` prints the same check after each story.
 - `python story.py check` writes 10 test stories and gives an overall verdict.
 
-A passage counts as copied when **8 or more words in a row** match one of your stories, ignoring capital letters and punctuation. The checker shows you the longest copied passage and which file it came from. Shorter overlaps are just ordinary phrases ("he went to the king, and said") that every writer uses.
+It looks for two kinds of copying:
+
+- **Copied passages:** 8 or more words in a row that match one of your stories, ignoring capital letters, punctuation and curly vs. straight quotes. It shows you the longest one and which file it came from.
+- **Near-copies:** a story that follows one of yours closely with just a few words changed.
+
+Some things don't count as copying. Shorter overlaps are ordinary phrases ("he went to the king, and said"). Stock phrases that 3 or more of your stories share ("Once upon a time, there was a little girl named Lily") don't count either. Stories you remove after training are still checked against, because the AI may have memorised them.
 
 Two real tests show what this looks like:
 
-| Model | Stories written | Copied words | Longest passage shared with training stories |
-|---|---|---|---|
-| Tiny brain, trained on **120 fairy tales** | 20 of 20 original | **0.0%** | 7 words ("he went to the king, and said") |
-| Tiny brain, over-trained on **only 3 short tales** | 9 of 10 copied | **97.7%** | 155 words, an entire fairy tale |
+| Model | Stories written | Copied words | Most of one story it followed | Longest shared passage |
+|---|---|---|---|---|
+| Tiny brain, trained on **120 fairy tales** | 20 of 20 original | **0.0%** | 4% | 7 words ("he went to the king, and said") |
+| Tiny brain, over-trained on **only 3 short tales** | 9 of 10 copied | **97.8%** | 99% | 152 words, a whole tale |
 
 What keeps it original:
 

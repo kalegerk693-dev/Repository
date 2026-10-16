@@ -74,11 +74,10 @@ def load_writer(model_dir):
 
 
 def cmd_write(args):
-    from .data import story_sources
-    from .originality import CopyChecker, describe
+    from .originality import CopyChecker, checker_sources, describe
 
     writer = load_writer(args.model_dir)
-    sources = [] if args.no_check else story_sources(args.stories)
+    sources = [] if args.no_check else checker_sources(args.stories, args.model_dir)
     checker = CopyChecker(sources) if sources else None
     rng = np.random.default_rng(args.seed)
     for n in range(args.count):
@@ -96,11 +95,12 @@ def cmd_write(args):
 
 
 def cmd_check(args):
-    from .data import story_sources
-    from .originality import MIN_RUN, CopyChecker
+    from .originality import MIN_RUN, CopyChecker, checker_sources
 
+    if args.count < 1:
+        raise SystemExit("--count must be at least 1.")
     writer = load_writer(args.model_dir)
-    sources = story_sources(args.stories)
+    sources = checker_sources(args.stories, args.model_dir)
     if not sources:
         raise SystemExit(f"No stories in {args.stories}/ to compare with.")
     checker = CopyChecker(sources)
@@ -116,13 +116,16 @@ def cmd_check(args):
         r = checker.check(story.generated)
         results.append(r)
         say(f"  story {n + 1:>2}: {r['verdict']:<13} {round(100 * r['copied_fraction']):>3}% copied, "
-            f"longest copied passage {r['longest']} words  ({r['words']} words long)")
+            f"longest copied passage {r['longest']:>3} words, "
+            f"{round(100 * r['near_copy']):>3}% follows one story  ({r['words']} words long)")
     copied = sum(r["copied_fraction"] * r["words"] for r in results)
     total = sum(r["words"] for r in results) or 1
     original = sum(r["verdict"] == "original" for r in results)
     worst = max(results, key=lambda r: r["longest"])
     say(f"\n{original} of {len(results)} stories are original. "
         f"Overall, {100 * copied / total:.1f}% of the words it wrote are copied from your stories.")
+    say(f"Closest any story came to following one of yours: "
+        f"{round(100 * max(r['near_copy'] for r in results))}% of its words.")
     if worst["longest"]:
         say(f"Longest copied passage ({worst['longest']} words, from {worst['source']}):\n"
             f"  “{worst['passage']}”")

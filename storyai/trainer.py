@@ -6,9 +6,10 @@ from pathlib import Path
 import numpy as np
 
 from .checkpoint import load_checkpoint, save_checkpoint
-from .data import auto_vocab_size, encode_stories, get_batch, is_holdout, read_stories, story_id
+from .data import auto_vocab_size, encode_stories, get_batch, is_holdout, story_id, story_sources
 from .model import GPT, PRESETS, GPTConfig
 from .optim import AdamW, clip_grad_norm, learning_rate
+from .originality import record_trained_stories
 from .tokenizer import END_OF_STORY, Tokenizer
 
 
@@ -45,7 +46,8 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
     tok_path, ckpt_path = out_dir / "tokenizer.json", out_dir / "model.npz"
     rng = np.random.default_rng(seed)
 
-    stories = read_stories(stories_dir)
+    sources = story_sources(stories_dir)
+    stories = [text for _, text in sources]
     if not stories:
         raise TrainingError("No stories to learn from yet. Add some stories first.")
     num_chars = sum(len(s) for s in stories)
@@ -125,6 +127,7 @@ def train(stories_dir, out_dir, size=None, steps=2000, batch_size=16, lr=1e-3,
         line += ". (No quiz this run: none of the stories picked for it are new to the model.)"
     log(line)
     meta["seen"] = sorted(seen | {story_id(s) for s in train_stories})
+    record_trained_stories(out_dir, [(name, text) for name, text in sources if text not in in_quiz])
 
     warmup = min(100, max(1, steps // 10))
     best_val, best_step, checks_without_progress = float("inf"), 0, 0

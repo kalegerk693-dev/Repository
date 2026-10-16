@@ -15,8 +15,9 @@ from urllib.parse import urlparse
 import numpy as np
 
 from .checkpoint import read_checkpoint_info
-from .data import count_new_stories, list_story_files, save_story
+from .data import count_new_stories, list_story_files, save_story, story_files, story_sources
 from .model import PRESETS
+from .originality import CopyChecker, describe
 from .trainer import TrainingError, train
 from .writer import NoModelError, StoryWriter
 
@@ -42,6 +43,7 @@ class StoryApp:
         self.error = None
         self._writer, self._writer_stamp = None, None
         self._info, self._info_stamp = None, None
+        self._checker, self._checker_stamp = None, None
 
     # ------------------------------------------------------------------ stories
 
@@ -143,6 +145,22 @@ class StoryApp:
 
     # ------------------------------------------------------------------ writing
 
+    def originality(self, text):
+        """How much of `text` is copied from your stories (None if there are no stories)."""
+        files = story_files(self.stories_dir)
+        stamp = [(str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in files]
+        with self.lock:  # rebuild the index only when your stories change
+            if stamp != self._checker_stamp:
+                sources = story_sources(self.stories_dir)
+                self._checker = CopyChecker(sources) if sources else None
+                self._checker_stamp = stamp
+            checker = self._checker
+        if checker is None:
+            return None
+        result = checker.check(text)
+        return {"verdict": result["verdict"], "summary": describe(result),
+                "copied_percent": round(100 * result["copied_fraction"])}
+
     def writer(self):
         ckpt = self.model_dir / "model.npz"
         stamp = ckpt.stat().st_mtime_ns if ckpt.exists() else None
@@ -225,7 +243,10 @@ def make_handler(app):
             for piece in story:
                 self.wfile.write(piece.encode("utf-8"))
                 self.wfile.flush()
-            self.wfile.write(b"\x00" + (b"end" if story.finished else b"cut"))
+            # After the story: a NUL, then how it ended and how original it is, as JSON.
+            info = {"ending": "end" if story.finished else "cut",
+                    "originality": app.originality(story.generated)}
+            self.wfile.write(b"\x00" + json.dumps(info).encode("utf-8"))
 
     return Handler
 

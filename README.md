@@ -126,6 +126,30 @@ python story.py tokens "Once upon a time, a dragon sneezed."
 
 (That's the tokenizer trained on the fairy tales. Yours will split text differently, depending on which words your stories use most.)
 
+## 4. Is it writing its own stories, or copying yours?
+
+The AI learns by predicting the next word of your stories. With enough stories it can't memorise them all, so it learns *how* stories go and writes new ones. With too few stories, or too much training, it can simply memorise them and copy. You don't have to guess which one is happening. **Every story it writes is checked against all of yours.**
+
+- In the app, each story gets a badge: **✓ Original**, **⚠ Partly copied** or **✗ Copied**.
+- `python story.py write` prints the same check after each story.
+- `python story.py check` writes 10 test stories and gives an overall verdict.
+
+A passage counts as copied when **8 or more words in a row** match one of your stories, ignoring capital letters and punctuation. The checker shows you the longest copied passage and which file it came from. Shorter overlaps are just ordinary phrases ("he went to the king, and said") that every writer uses.
+
+Two real tests show what this looks like:
+
+| Model | Stories written | Copied words | Longest passage shared with training stories |
+|---|---|---|---|
+| Tiny brain, trained on **120 fairy tales** | 20 of 20 original | **0.0%** | 7 words ("he went to the king, and said") |
+| Tiny brain, over-trained on **only 3 short tales** | 9 of 10 copied | **97.7%** | 155 words, an entire fairy tale |
+
+What keeps it original:
+
+- **Feed it more stories.** This matters most.
+- **The quiz** keeps about 1 in 10 stories out of training and saves only the version that does best on them. That's the version that writes rather than memorises. Training also warns you when the quiz score stops improving.
+- **Dropout and weight decay** during training make memorising harder.
+- If `check` says it's copying, add stories or train for fewer steps.
+
 ## How it works
 
 | File | What it does |
@@ -137,7 +161,8 @@ python story.py tokens "Once upon a time, a dragon sneezed."
 | `storyai/trainer.py` | The training loop: quiz split, checks, saving the best model |
 | `storyai/checkpoint.py` | Saves and loads the brain (`checkpoints/model.npz`) |
 | `storyai/writer.py` | Loads a trained brain and writes a story piece by piece |
-| `storyai/cli.py` | The `app` / `feed` / `train` / `write` / `tokens` commands |
+| `storyai/originality.py` | Checks every new story against yours for copied passages |
+| `storyai/cli.py` | The `app` / `feed` / `train` / `write` / `check` / `tokens` commands |
 | `storyai/webapp.py`, `storyai/app.html` | The point-and-click web app (Python's built-in web server, nothing to install) |
 | `.devcontainer/`, `StoryAI.ipynb` | One-click setups for GitHub Codespaces and Google Colab |
 

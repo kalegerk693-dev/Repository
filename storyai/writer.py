@@ -47,6 +47,7 @@ class Story:
         self.sampling = dict(temperature=temperature, top_k=top_k, top_p=top_p, rng=rng,
                              min_new_tokens=min(min_tokens, max_tokens))
         self.finished = False
+        self.generated = ""  # just the AI's part, without the prompt
 
     def __iter__(self):
         w = self.writer
@@ -59,6 +60,9 @@ class Story:
             written += 1
             piece = CONTROL_CHARS.sub("", decoder.decode(w.tokenizer.vocab[token]))
             if piece:
+                self.generated += piece
                 yield piece
-        yield CONTROL_CHARS.sub("", decoder.decode(b"", final=True))
+        piece = CONTROL_CHARS.sub("", decoder.decode(b"", final=True))
+        self.generated += piece
+        yield piece
         self.finished = written < self.max_tokens

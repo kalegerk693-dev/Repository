@@ -72,10 +72,12 @@ class WebAppTest(unittest.TestCase):
 
         status, body = self.request("/api/write", {"prompt": "Once upon", "length": "short"})
         self.assertEqual(status, 200)
-        story, ending = body.decode().rsplit("\x00", 1)
+        story, info = body.decode().rsplit("\x00", 1)
+        info = json.loads(info)
         self.assertNotIn("\x00", story)
         self.assertTrue(story.startswith("Once upon"))
-        self.assertIn(ending, ("end", "cut"))
+        self.assertIn(info["ending"], ("end", "cut"))
+        self.assertIn(info["originality"]["verdict"], ("original", "partly copied", "copied"))
 
         self.assertEqual(self.request("/api/stories/delete", {"name": "fox.txt"})[0], 200)
         self.assertEqual(list(self.stories.iterdir()), [])

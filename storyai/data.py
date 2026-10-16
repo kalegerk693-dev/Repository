@@ -55,6 +55,13 @@ def read_stories(folder):
     return [story for path in story_files(folder) for story in split_stories(read_text_file(path))]
 
 
+def story_sources(folder):
+    """[(file name, story)] for every story, so a copied passage can be traced to its file."""
+    root = Path(folder)
+    return [(path.name if root.is_file() else str(path.relative_to(root)), story)
+            for path in story_files(folder) for story in split_stories(read_text_file(path))]
+
+
 def count_new_stories(folder, text):
     """How many of the stories in `text` aren't in `folder` yet."""
     existing = set(read_stories(folder))

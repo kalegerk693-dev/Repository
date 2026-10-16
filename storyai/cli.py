@@ -64,13 +64,22 @@ def cmd_train(args):
     say("Make it write with:  python story.py write")
 
 
-def cmd_write(args):
+def load_writer(model_dir):
     from .writer import NoModelError, StoryWriter
 
     try:
-        writer = StoryWriter(args.model_dir)
+        return StoryWriter(model_dir)
     except NoModelError as e:
         raise SystemExit(f"{e}\nRun:  python story.py train")
+
+
+def cmd_write(args):
+    from .data import story_sources
+    from .originality import CopyChecker, describe
+
+    writer = load_writer(args.model_dir)
+    sources = [] if args.no_check else story_sources(args.stories)
+    checker = CopyChecker(sources) if sources else None
     rng = np.random.default_rng(args.seed)
     for n in range(args.count):
         if args.count > 1:
@@ -82,6 +91,48 @@ def cmd_write(args):
         say()
         say("\n— The End —" if story.finished
             else "\n[...cut off at --max-tokens; raise it for longer stories]")
+        if checker:
+            say("\n" + describe(checker.check(story.generated)))
+
+
+def cmd_check(args):
+    from .data import story_sources
+    from .originality import MIN_RUN, CopyChecker
+
+    writer = load_writer(args.model_dir)
+    sources = story_sources(args.stories)
+    if not sources:
+        raise SystemExit(f"No stories in {args.stories}/ to compare with.")
+    checker = CopyChecker(sources)
+    rng = np.random.default_rng(args.seed)
+    say(f"Writing {args.count} stories and comparing each one, word for word, with your "
+        f"{len(sources)} {'story' if len(sources) == 1 else 'stories'}.\n"
+        f"A run of {MIN_RUN}+ identical words in a row counts as copied.\n")
+    results = []
+    for n in range(args.count):
+        story = writer.write("", args.max_tokens, temperature=args.temperature, rng=rng)
+        for _ in story:
+            pass
+        r = checker.check(story.generated)
+        results.append(r)
+        say(f"  story {n + 1:>2}: {r['verdict']:<13} {round(100 * r['copied_fraction']):>3}% copied, "
+            f"longest copied passage {r['longest']} words  ({r['words']} words long)")
+    copied = sum(r["copied_fraction"] * r["words"] for r in results)
+    total = sum(r["words"] for r in results) or 1
+    original = sum(r["verdict"] == "original" for r in results)
+    worst = max(results, key=lambda r: r["longest"])
+    say(f"\n{original} of {len(results)} stories are original. "
+        f"Overall, {100 * copied / total:.1f}% of the words it wrote are copied from your stories.")
+    if worst["longest"]:
+        say(f"Longest copied passage ({worst['longest']} words, from {worst['source']}):\n"
+            f"  “{worst['passage']}”")
+    if original == len(results):
+        say("\nVerdict: it's writing its own stories, not copying yours.")
+    elif original >= len(results) / 2:
+        say("\nVerdict: mostly its own writing, with some copying. More stories will help.")
+    else:
+        say("\nVerdict: it's copying your stories. Feed it more stories, or train for fewer "
+            "steps, so it has to learn to write instead of memorising.")
 
 
 def cmd_tokens(args):
@@ -158,7 +209,16 @@ def main(argv=None):
     p.add_argument("--top-p", type=float, default=0.95,
                    help="only pick from the likeliest words covering this much probability (0-1)")
     p.add_argument("--seed", type=int)
+    p.add_argument("--no-check", action="store_true",
+                   help="don't compare the story with yours for copying")
     p.set_defaults(func=cmd_write)
+
+    p = add_command("check", help="test whether it writes its own stories or copies yours")
+    p.add_argument("--count", type=int, default=10, help="how many test stories to write")
+    p.add_argument("--max-tokens", type=int, default=300)
+    p.add_argument("--temperature", type=float, default=0.8)
+    p.add_argument("--seed", type=int)
+    p.set_defaults(func=cmd_check)
 
     p = add_command("tokens", help="see how the tokenizer chops up some text")
     p.add_argument("text", nargs="+")
